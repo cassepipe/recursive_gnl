@@ -1,28 +1,41 @@
-#include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <fcntl.h>
+#include <stdio.h>
 
-#define BUFSIZE 10
+#ifndef BUFLEN
+#	define BUFLEN  1
+#endif
 
-static const char wrong_args[] = "Wrong number of args\n";
-static const char file_error[] = "Problem with file\n";
-
-static void	gnl_memcpy(char *dest, const char *src, size_t n)
+char	*gnl_strchrnul(char *str, char c)
 {
+		while (*str)
+		{
+			if (*str == c)
+				return (str);
+			str++;
+		}
+		return (str);
+}
+
+void	gnl_memcpy(char *dest, const char *src, size_t n)
+{
+	if (dest && src)
+	{
 		while (n--)
 		{
 			*dest = *src;
-			src++;
 			dest++;
+			src++;
 		}
+	}
 }
 
-static char *gnl_memjoin(char *str1, const char *str2, size_t len1, size_t len2)
+char	*gnl_memjoin(char *str1, size_t len1, char *str2, size_t len2)
 {
-	size_t	size;
-	char	*ret;
+	size_t size;
+	char *ret;
 
 	size = len1 + len2 + 1;
 	ret = malloc(size);
@@ -34,77 +47,72 @@ static char *gnl_memjoin(char *str1, const char *str2, size_t len1, size_t len2)
 	return (ret);
 }
 
-static int get_that_line(int fd, char **line, char *buffer, char **bufstart, size_t line_len)
+int	rec_next_line(int fd, char **line, char *buffer, char **bufstart, size_t line_len)
 {
-	char	*newline;
-	char	*old_line;
-	ssize_t	r;
+	char  *newline_or_null_byte;
+	char *old_line;
+	int	r;
 
-	newline = strchr(*bufstart, '\n');
-	old_line = *line;
-	if (newline)
+	newline_or_null_byte = gnl_strchrnul(*bufstart, '\n');
+	old_line  =  *line;
+	*line = gnl_memjoin(*line, line_len, *bufstart, newline_or_null_byte - *bufstart);
+	free(old_line);
+	if (*newline_or_null_byte == '\n')
 	{
-		/*Base case*/
-		*line = gnl_memjoin(*line, *bufstart, line_len, newline - *bufstart);
-		free (old_line);
-		*bufstart = newline + 1;
+		*bufstart = newline_or_null_byte + 1;
 		return (1);
 	}
-	else
+	line_len += newline_or_null_byte - *bufstart;
+	*bufstart = buffer;
+	r = read(fd, buffer, BUFLEN);
+	if (r < BUFLEN)
 	{
-		/*Recursive branch*/
-		*line = gnl_memjoin(*line, *bufstart, line_len, &buffer[BUFSIZE] - *bufstart);
-		free (old_line);
-		line_len += &buffer[BUFSIZE] - *bufstart;
-		*bufstart = buffer;
-		r = read(fd, buffer, BUFSIZE);
-		if (r < 1)
-			return (r);
-		if (r < BUFSIZE)
-			buffer[r] = '\n';
-		if (r < BUFSIZE)
-			bzero(&buffer[r], BUFSIZE - r);
-		return (get_that_line(fd, line, buffer, bufstart, line_len));
+		bzero(&buffer[r], BUFLEN - r);
 	}
+	if (r == 0 && line_len == 0)
+		return (0);
+	if (r == 0)
+		return (1);
+	return(rec_next_line(fd, line, buffer, bufstart, line_len));
+
 }
 
 int	get_next_line(int fd, char **line)
 {
-	static char buffer[BUFSIZE + 1];
-	static char *bufstart;
-	static size_t line_len;
+		static char buffer[BUFLEN + 1];
+		static char *bufstart;
+		size_t line_len;
 
-	*line = NULL;
-	line_len = 0;
-	if (*buffer == '\0')
-	{
-		bufstart = &buffer[BUFSIZE];
-	}
-	return(get_that_line(fd, line, buffer, &bufstart, line_len));
+		*line = NULL;
+		line_len = 0;
+		if (!bufstart)
+			bufstart = &buffer[BUFLEN];
+		return (rec_next_line(fd, line, buffer, &bufstart, line_len));
 }
 
 int main(int ac, char **av)
 {
-	if (ac != 2)
-	{
-		write(1, wrong_args, sizeof wrong_args);
-		return (1);
-	}
+		if (ac != 2)
+		{
+			puts("Wrong number of  args !");
+			return (1);
+		}
 
-	int fd;
+		int fd;
 
-	fd = open(av[1], O_RDONLY);
-	if (fd == -1)
-	{
-		write(1, file_error, sizeof(file_error));
-		return (1);
-	}
+		fd = open(av[1], O_RDONLY);
+		if (fd == -1)
+		{
+			puts("Pb with file");
+			return 1;
+		}
 
-	char *line;
-	while (get_next_line(fd, &line))
-	{
-		puts(line);
+		char *line;
+
+		while (get_next_line(fd, &line) == 1)
+		{
+				puts(line);
+				free(line);
+		}
 		free(line);
-	}
-
 }
